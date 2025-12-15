@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbon-app-deployment
+  namespace: 2401129 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbon-emission-app
+  template:
+    metadata:
+      labels:
+        app: carbon-emission-app
+    spec:
+      containers:
+      - name: carbon-app-container
+        # Matches the URL we put in the Jenkinsfile
+        image: nexus.imcc.com/carbon-emission-app:v1 
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbon-app-service
+  namespace: 2401129   
+spec:
+  type: NodePort
+  selector:
+    app: carbon-emission-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30007
