@@ -2,7 +2,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: carbon-app-service
-  # FIX 1: Namespace must be in quotes!
   namespace: "2401129"
 spec:
   type: NodePort
@@ -12,6 +11,4 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 8080
-      # Ensure this NodePort (30007) is assigned to you. 
-      # If you get a "Port Conflict" error, change it to something else (e.g., 30008, 30129).
-      nodePort: 30007
+      nodePort: 30129
