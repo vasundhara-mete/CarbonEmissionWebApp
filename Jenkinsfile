@@ -23,6 +23,10 @@ pipeline {
                     script {
                         // --- STEP 1: FORCE INSECURE REGISTRY ---
                         echo "Configuring Docker to allow insecure HTTP registry..."
+                        
+                        // FIX: Create the directory first!
+                        sh 'mkdir -p /etc/docker'
+                        
                         // 1. Create the daemon.json file
                         sh 'echo "{ \\"insecure-registries\\": [\\"nexus.imcc.com:8085\\"] }" > /etc/docker/daemon.json'
                         
@@ -32,7 +36,7 @@ pipeline {
                         // 3. Wait 5 seconds for Docker to restart
                         sh 'sleep 5'
                         
-                        // --- STEP 2: DNS SPOOFING (Keep this) ---
+                        // --- STEP 2: DNS SPOOFING ---
                         def internalIP = sh(script: "getent hosts ${INTERNAL_HOST} | awk '{ print \$1 }'", returnStdout: true).trim()
                         echo "Internal IP is: ${internalIP}"
                         sh "echo '${internalIP} nexus.imcc.com' >> /etc/hosts"
