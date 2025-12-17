@@ -17,7 +17,7 @@ spec:
       - name: carbon-app-container
         # MANDATORY: Replace <INSERT_NEXUS_IP_HERE> with the IP you found (e.g., 192.168.1.50)
         # Ensure the port (e.g., :8083) matches what is in your Jenkinsfile
-        image: 192.168.25.11:8083/carbon-emission-app:v1 
+        image: 192.168.25.11:8082/carbon-emission-app:v1 
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
