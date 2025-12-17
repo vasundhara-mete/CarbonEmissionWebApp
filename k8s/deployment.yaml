@@ -2,7 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: carbon-app-deployment
-  namespace: 2401129
+  # FIX 1: Namespace must be in quotes!
+  namespace: "2401129"
 spec:
   replicas: 1
   selector:
@@ -15,7 +16,7 @@ spec:
     spec:
       containers:
       - name: carbon-app-container
-        # CRITICAL: This matches the "Spoofed" domain and port 8085 from your Jenkinsfile
+        # FIX 2: Must match the image URL pushed by Jenkins (nexus.imcc.com:8085)
         image: nexus.imcc.com:8085/carbon-emission-app:v1
         imagePullPolicy: Always
         ports:
