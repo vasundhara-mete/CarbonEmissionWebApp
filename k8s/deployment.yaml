@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: carbon-app-deployment
-  namespace: 2401129   
+  namespace: 2401129
 spec:
   replicas: 1
   selector:
@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
       - name: carbon-app-container
-        # MANDATORY: Must match the REGISTRY_URL in Jenkinsfile
-        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/carbon-emission-app:v1
+        # CRITICAL: This matches the "Spoofed" domain and port 8085 from your Jenkinsfile
+        image: nexus.imcc.com:8085/carbon-emission-app:v1
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
