@@ -1,11 +1,12 @@
 pipeline {
     agent any
     environment {
-        // CHANGED PORT TO 8081
-        REGISTRY_URL = "192.168.25.11:8081" 
+        // --- CONFIGURATION ---
+        // MANDATORY: The internal DNS name and port 8085
+        REGISTRY_URL = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         
         IMAGE_NAME = "carbon-emission-app"
-        NAMESPACE = "2401129"
+        NAMESPACE = "2401129"  // Your Roll Number
         NEXUS_CRED_ID = "nexus-credentials" 
     }
     stages {
@@ -16,12 +17,17 @@ pipeline {
         }
         stage('Docker Build & Push') {
             steps {
+                // We use the 'dind' container to ensure docker commands work
                 container('dind') {
                     script {
                         withCredentials([usernamePassword(credentialsId: "${NEXUS_CRED_ID}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
-                            // Uses 8081 now
+                            // 1. Login
                             sh "docker login -u ${NEXUS_USER} -p ${NEXUS_PASS} ${REGISTRY_URL}"
+                            
+                            // 2. Build the image
                             sh "docker build -t ${REGISTRY_URL}/${IMAGE_NAME}:v1 ."
+                            
+                            // 3. Push the image
                             sh "docker push ${REGISTRY_URL}/${IMAGE_NAME}:v1"
                         }
                     }
@@ -30,6 +36,7 @@ pipeline {
         }
         stage('Deploy to K8s') {
             steps {
+                // Apply the Kubernetes manifests
                 sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
             }
         }
