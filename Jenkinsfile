@@ -2,8 +2,9 @@ pipeline {
     agent any
     environment {
         // --- CONFIGURATION ---
-        REGISTRY_URL = "nexus.imcc.com:8085"
-        INTERNAL_HOST = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local"
+        // USE THE REAL INTERNAL HOST (No more spoofing)
+        REGISTRY_URL = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        
         IMAGE_NAME = "carbon-emission-app"
         NAMESPACE = "2401129"
         NEXUS_CRED_ID = "nexus-credentials" 
@@ -18,14 +19,14 @@ pipeline {
             steps {
                 container('dind') {
                     script {
-                        echo "Configuring Docker to allow insecure HTTP registry..."
+                        echo "Configuring Docker to allow insecure INTERNAL registry..."
                         sh 'mkdir -p /etc/docker'
-                        sh 'echo "{ \\"insecure-registries\\": [\\"nexus.imcc.com:8085\\"] }" > /etc/docker/daemon.json'
+                        
+                        // FIX: Whitelist the INTERNAL address in daemon.json
+                        sh 'echo "{ \\"insecure-registries\\": [\\"nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085\\"] }" > /etc/docker/daemon.json'
+                        
                         sh 'kill -SIGHUP $(pidof dockerd)'
                         sh 'sleep 5'
-                        
-                        def internalIP = sh(script: "getent hosts ${INTERNAL_HOST} | awk '{ print \$1 }'", returnStdout: true).trim()
-                        sh "echo '${internalIP} nexus.imcc.com' >> /etc/hosts"
                         
                         withCredentials([usernamePassword(credentialsId: "${NEXUS_CRED_ID}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
                             sh "docker login -u ${NEXUS_USER} -p ${NEXUS_PASS} ${REGISTRY_URL}"
@@ -44,11 +45,13 @@ pipeline {
                     sh "chmod +x ./kubectl"
                     
                     echo "--- Creating Namespace if missing ---"
-                    // FIX: Create the namespace. '|| true' ignores the error if it already exists.
                     sh "./kubectl create namespace ${NAMESPACE} || true"
                     
                     echo "--- Deploying to Kubernetes ---"
                     sh "./kubectl apply -f k8s/ -n ${NAMESPACE}"
+                    
+                    echo "--- FORCING RESTART (To pick up new image) ---"
+                    sh "./kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                 }
             }
         }
