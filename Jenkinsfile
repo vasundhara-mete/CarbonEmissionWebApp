@@ -40,13 +40,13 @@ pipeline {
             steps {
                 script {
                     echo "--- Installing kubectl temporarily ---"
-                    // 1. Download kubectl binary
                     sh "curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
-                    
-                    // 2. Make it executable
                     sh "chmod +x ./kubectl"
                     
-                    // 3. Run deploy using the local ./kubectl
+                    echo "--- Creating Namespace if missing ---"
+                    // FIX: Create the namespace. '|| true' ignores the error if it already exists.
+                    sh "./kubectl create namespace ${NAMESPACE} || true"
+                    
                     echo "--- Deploying to Kubernetes ---"
                     sh "./kubectl apply -f k8s/ -n ${NAMESPACE}"
                 }
