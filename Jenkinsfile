@@ -1,57 +1,97 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: dind
+    image: docker:dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+    volumeMounts:
+    - name: docker-config
+      mountPath: /etc/docker/daemon.json
+      subPath: daemon.json
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command: ["cat"]
+    tty: true
+    env:
+    - name: KUBECONFIG
+      value: /kube/config
+    volumeMounts:
+    - name: kubeconfig-secret
+      mountPath: /kube/config
+      subPath: kubeconfig
+  volumes:
+  - name: docker-config
+    configMap:
+      name: docker-daemon-config
+  - name: kubeconfig-secret
+    secret:
+      secretName: kubeconfig-secret
+'''
+        }
+    }
+    options { skipDefaultCheckout() }
     environment {
-        // --- CONFIGURATION ---
-        // USE THE REAL INTERNAL HOST (No more spoofing)
-        REGISTRY_URL = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
-        
-        IMAGE_NAME = "carbon-emission-app"
-        NAMESPACE = "2401129"
-        NEXUS_CRED_ID = "nexus-credentials" 
+        IMAGE_NAME    = "carbon-emission-app"
+        NAMESPACE     = "2401129"
+        REGISTRY_HOST = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
+        REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
-        stage('Build') {
+        stage('Checkout Code') {
             steps {
-                echo 'Using exported ROOT.war...'
+                deleteDir()
+                sh "git clone https://github.com/YOUR-USERNAME/YOUR-REPO.git ." 
             }
         }
-        stage('Docker Build & Push') {
+        stage('SonarQube Analysis') {
+            steps {
+                container('dind') {
+                    // This command mounts the 'app' folder so Sonar can find your properties file
+                    sh """
+                        docker run --rm \
+                            -v "\$PWD/app:/usr/src" \
+                            sonarsource/sonar-scanner-cli \
+                            -Dsonar.projectBaseDir=/usr/src
+                    """
+                }
+            }
+        }
+        stage('Build & Push Docker Image') {
             steps {
                 container('dind') {
                     script {
-                        echo "Configuring Docker to allow insecure INTERNAL registry..."
-                        sh 'mkdir -p /etc/docker'
-                        
-                        // FIX: Whitelist the INTERNAL address in daemon.json
-                        sh 'echo "{ \\"insecure-registries\\": [\\"nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085\\"] }" > /etc/docker/daemon.json'
-                        
-                        sh 'kill -SIGHUP $(pidof dockerd)'
-                        sh 'sleep 5'
-                        
-                        withCredentials([usernamePassword(credentialsId: "${NEXUS_CRED_ID}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
-                            sh "docker login -u ${NEXUS_USER} -p ${NEXUS_PASS} ${REGISTRY_URL}"
-                            sh "docker build -t ${REGISTRY_URL}/${IMAGE_NAME}:v1 ."
-                            sh "docker push ${REGISTRY_URL}/${IMAGE_NAME}:v1"
+                        timeout(time: 1, unit: 'MINUTES') {
+                            waitUntil {
+                                try { sh 'docker info >/dev/null 2>&1'; return true } 
+                                catch (Exception e) { sleep 5; return false }
+                            }
                         }
+                        sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
+                        sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
+                        sh """
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:latest
+                            docker push ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker push ${REGISTRY_URL}/${IMAGE_NAME}:latest
+                        """
                     }
                 }
             }
         }
-        stage('Deploy to K8s') {
+        stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    echo "--- Installing kubectl temporarily ---"
-                    sh "curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
-                    sh "chmod +x ./kubectl"
-                    
-                    echo "--- Creating Namespace if missing ---"
-                    sh "./kubectl create namespace ${NAMESPACE} || true"
-                    
-                    echo "--- Deploying to Kubernetes ---"
-                    sh "./kubectl apply -f k8s/ -n ${NAMESPACE}"
-                    
-                    echo "--- FORCING RESTART (To pick up new image) ---"
-                    sh "./kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                container('kubectl') {
+                    sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                    sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                 }
             }
         }

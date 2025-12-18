@@ -13,10 +13,11 @@ spec:
       labels:
         app: carbon-emission-app
     spec:
+      imagePullSecrets:
+        - name: nexus-secret 
       containers:
-      - name: carbon-app-container
-        # FIX: Use the REAL Internal Address
-        image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/carbon-emission-app:v1
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8080
+        - name: carbon-app-container
+          image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401129/carbon-emission-app:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
