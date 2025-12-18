@@ -46,11 +46,12 @@ spec:
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
-        // --- STAGE 1: JENKINS (Checkout) ---
+        // --- STAGE 1: CHECKOUT (Fixed Git URL) ---
         stage('Checkout Code') {
             steps {
                 deleteDir()
-                sh "git clone https://github.com/YOUR-USERNAME/YOUR-REPO.git ." 
+                // 👇 UPDATED TO YOUR ACTUAL REPO URL
+                sh "git clone https://github.com/vasundhara-mete/CarbonEmissionWebApp.git ." 
             }
         }
 
