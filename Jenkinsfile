@@ -54,19 +54,17 @@ spec:
             }
         }
 
-        // --- STAGE 2: SONARQUBE (Analysis) ---
+        // --- STAGE 2: SONARQUBE ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
                     script {
-                        // 👇 ADDED: Wait for Docker to start before running Sonar
                         timeout(time: 1, unit: 'MINUTES') {
                             waitUntil {
                                 try { sh 'docker info >/dev/null 2>&1'; return true } 
                                 catch (Exception e) { sleep 5; return false }
                             }
                         }
-                        
                         sh """
                             docker run --rm \
                                 -v "\$PWD/app:/usr/src" \
@@ -78,7 +76,7 @@ spec:
             }
         }
 
-        // --- STAGE 3: DOCKER (Build Only) ---
+        // --- STAGE 3: BUILD ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -90,7 +88,7 @@ spec:
             }
         }
 
-        // --- STAGE 4: NEXUS (Login & Push Only) ---
+        // --- STAGE 4: PUSH ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
@@ -111,9 +109,15 @@ spec:
             }
         }
 
-        // --- STAGE 5: KUBERNETES (Deploy) ---
+        // --- STAGE 5: DEPLOY (FIXED) ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     echo "Deploying manifests to Kubernetes..."
-                    sh "kubectl apply -f k8s
+                    sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                    sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                }
+            }
+        }
+    }
+}
