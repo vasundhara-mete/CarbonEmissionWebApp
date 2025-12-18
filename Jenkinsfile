@@ -54,17 +54,19 @@ spec:
             }
         }
 
-        // --- STAGE 2: SONARQUBE ---
+        // --- STAGE 2: SONARQUBE ANALYSIS ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
                     script {
+                        // Wait for Docker Daemon to start
                         timeout(time: 1, unit: 'MINUTES') {
                             waitUntil {
                                 try { sh 'docker info >/dev/null 2>&1'; return true } 
                                 catch (Exception e) { sleep 5; return false }
                             }
                         }
+                        // Run Sonar Scanner
                         sh """
                             docker run --rm \
                                 -v "\$PWD/app:/usr/src" \
@@ -76,7 +78,7 @@ spec:
             }
         }
 
-        // --- STAGE 3: BUILD ---
+        // --- STAGE 3: BUILD DOCKER IMAGE ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -88,7 +90,7 @@ spec:
             }
         }
 
-        // --- STAGE 4: PUSH ---
+        // --- STAGE 4: PUSH TO NEXUS ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
@@ -109,13 +111,25 @@ spec:
             }
         }
 
-        // --- STAGE 5: DEPLOY (FIXED) ---
+        // --- STAGE 5: DEPLOY TO KUBERNETES ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
-                    echo "Deploying manifests to Kubernetes..."
-                    sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                    sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                    script {
+                        echo "Deploying manifests to Kubernetes..."
+                        
+                        // Small safety wait
+                        sleep 5 
+                        
+                        // Apply manifests (Fixed syntax here)
+                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                        
+                        // Restart deployment to update image
+                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                        
+                        // Wait for success status
+                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
+                    }
                 }
             }
         }
