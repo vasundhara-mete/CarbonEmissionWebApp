@@ -46,11 +46,10 @@ spec:
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
-        // --- STAGE 1: CHECKOUT (Fixed Git URL) ---
+        // --- STAGE 1: CHECKOUT ---
         stage('Checkout Code') {
             steps {
                 deleteDir()
-                // 👇 UPDATED TO YOUR ACTUAL REPO URL
                 sh "git clone https://github.com/vasundhara-mete/CarbonEmissionWebApp.git ." 
             }
         }
@@ -59,12 +58,22 @@ spec:
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
-                    sh """
-                        docker run --rm \
-                            -v "\$PWD/app:/usr/src" \
-                            sonarsource/sonar-scanner-cli \
-                            -Dsonar.projectBaseDir=/usr/src
-                    """
+                    script {
+                        // 👇 ADDED: Wait for Docker to start before running Sonar
+                        timeout(time: 1, unit: 'MINUTES') {
+                            waitUntil {
+                                try { sh 'docker info >/dev/null 2>&1'; return true } 
+                                catch (Exception e) { sleep 5; return false }
+                            }
+                        }
+                        
+                        sh """
+                            docker run --rm \
+                                -v "\$PWD/app:/usr/src" \
+                                sonarsource/sonar-scanner-cli \
+                                -Dsonar.projectBaseDir=/usr/src
+                        """
+                    }
                 }
             }
         }
@@ -74,12 +83,6 @@ spec:
             steps {
                 container('dind') {
                     script {
-                        timeout(time: 1, unit: 'MINUTES') {
-                            waitUntil {
-                                try { sh 'docker info >/dev/null 2>&1'; return true } 
-                                catch (Exception e) { sleep 5; return false }
-                            }
-                        }
                         echo "Building Image with Docker..."
                         sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
                     }
@@ -113,10 +116,4 @@ spec:
             steps {
                 container('kubectl') {
                     echo "Deploying manifests to Kubernetes..."
-                    sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                    sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                }
-            }
-        }
-    }
-}
+                    sh "kubectl apply -f k8s
