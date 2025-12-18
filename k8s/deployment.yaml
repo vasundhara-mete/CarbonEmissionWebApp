@@ -21,3 +21,11 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          env:
+            - name: DB_URL
+              
+              value: "jdbc:mysql://192.168.23.88:3306/projectcrud?useSSL=false&allowPublicKeyRetrieval=true"
+            - name: DB_USER
+              value: "root"
+            - name: DB_PASSWORD
+              value: ""

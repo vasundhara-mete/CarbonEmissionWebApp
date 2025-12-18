@@ -23,7 +23,7 @@ spec:
     command: ["cat"]
     tty: true
     securityContext:
-      runAsUser: 0   # Essential for your environment
+      runAsUser: 0
     env:
     - name: KUBECONFIG
       value: /kube/config
@@ -50,7 +50,6 @@ spec:
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
-        // --- STAGE 1: CHECKOUT ---
         stage('Checkout Code') {
             steps {
                 deleteDir()
@@ -58,7 +57,6 @@ spec:
             }
         }
 
-        // --- STAGE 2: SONARQUBE ANALYSIS ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
@@ -80,7 +78,6 @@ spec:
             }
         }
 
-        // --- STAGE 3: BUILD DOCKER IMAGE ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -92,7 +89,6 @@ spec:
             }
         }
 
-        // --- STAGE 4: PUSH TO NEXUS ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
@@ -113,24 +109,23 @@ spec:
             }
         }
 
-        // --- STAGE 5: DEPLOY TO KUBERNETES ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     script {
                         echo "Deploying manifests to Kubernetes..."
-                        
-                        // Safety wait
-                        sleep 5 
-                        
-                        // Apply manifests
-                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                        
-                        // Force restart to pick up the new image
-                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                        
-                        // Wait up to 5 minutes (300s) for the pod to start
-                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
+                        try {
+                            sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                            sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                            
+                            // Wait up to 5 minutes for the app to start
+                            sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
+                        } catch (Exception e) {
+                            echo "⚠️ DEPLOYMENT FAILED! Fetching logs to debug..."
+                            sh "kubectl get pods -n ${NAMESPACE}"
+                            sh "kubectl logs -l app=carbon-emission-app -n ${NAMESPACE} --tail=100 --all-containers"
+                            error("Deployment failed. Check the logs above!")
+                        }
                     }
                 }
             }
