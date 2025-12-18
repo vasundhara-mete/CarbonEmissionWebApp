@@ -113,18 +113,35 @@ spec:
             steps {
                 container('kubectl') {
                     script {
-                        echo "Deploying manifests to Kubernetes..."
+                        echo "Configuring Secrets & Deploying..."
+                        
+                        // 1. Delete old secret if it exists to ensure we have the fresh one
+                        sh "kubectl delete secret nexus-secret -n ${NAMESPACE} --ignore-not-found"
+                        
+                        // 2. Create the secret so K8s can login to Nexus
+                        sh """
+                            kubectl create secret docker-registry nexus-secret \
+                            --docker-server=${REGISTRY_HOST} \
+                            --docker-username=admin \
+                            --docker-password=Changeme@2025 \
+                            -n ${NAMESPACE}
+                        """
+                        
+                        // 3. Apply deployment
+                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                        
+                        // 4. Restart to pick up new image
+                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                        
+                        // 5. Wait for success
                         try {
-                            sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                            sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                            
-                            // Wait up to 5 minutes
                             sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
                         } catch (Exception e) {
-                            echo "🔴 DEPLOYMENT FAILED - FETCHING CRASH LOGS..."
+                            echo "🔴 DEPLOYMENT FAILED - FETCHING DEBUG INFO..."
                             sh "kubectl get pods -n ${NAMESPACE}"
+                            sh "kubectl describe pod -l app=carbon-emission-app -n ${NAMESPACE}"
                             sh "kubectl logs -l app=carbon-emission-app -n ${NAMESPACE} --tail=200 --all-containers || true"
-                            error("Deployment Failed. Please check the logs above.")
+                            error("Deployment Failed. Check logs above.")
                         }
                     }
                 }
