@@ -46,16 +46,18 @@ spec:
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
+        // 1. JENKINS & GIT (Checking out code)
         stage('Checkout Code') {
             steps {
                 deleteDir()
                 sh "git clone https://github.com/YOUR-USERNAME/YOUR-REPO.git ." 
             }
         }
+
+        // 2. SONARQUBE (Checking Code Quality)
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
-                    // This command mounts the 'app' folder so Sonar can find your properties file
                     sh """
                         docker run --rm \
                             -v "\$PWD/app:/usr/src" \
@@ -65,7 +67,9 @@ spec:
                 }
             }
         }
-        stage('Build & Push Docker Image') {
+
+        // 3. DOCKER (Building the Image)
+        stage('Build Docker Image') {
             steps {
                 container('dind') {
                     script {
@@ -75,11 +79,26 @@ spec:
                                 catch (Exception e) { sleep 5; return false }
                             }
                         }
-                        sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
+                        echo "Building Docker Image..."
                         sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
+                    }
+                }
+            }
+        }
+
+        // 4. NEXUS (Pushing Image to Registry)
+        stage('Push to Nexus') {
+            steps {
+                container('dind') {
+                    script {
+                        echo "Logging into Nexus..."
+                        sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
+                        
+                        echo "Pushing image to Nexus..."
                         sh """
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:latest
+                            
                             docker push ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
                             docker push ${REGISTRY_URL}/${IMAGE_NAME}:latest
                         """
@@ -87,9 +106,12 @@ spec:
                 }
             }
         }
+
+        // 5. KUBERNETES (Deploying the App)
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
+                    echo "Deploying to Kubernetes Cluster..."
                     sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
                     sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                 }
