@@ -23,10 +23,10 @@ spec:
             - containerPort: 8080
           env:
             - name: DB_URL
-              # Connected to your Laptop IP
+              
               value: "jdbc:mysql://192.168.23.88:3306/projectcrud?useSSL=false&allowPublicKeyRetrieval=true"
             - name: DB_USER
               value: "root"
             - name: DB_PASSWORD
-              # If you use XAMPP with no password, leave the value empty: value: ""
-              value: "root"
+              
+              value: ""

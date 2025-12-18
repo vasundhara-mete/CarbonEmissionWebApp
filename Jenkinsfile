@@ -94,7 +94,6 @@ spec:
                 container('dind') {
                     script {
                         echo "Logging into Nexus Registry..."
-                        // Using explicit password for stability
                         sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
                         
                         echo "Pushing Image to Nexus..."
@@ -115,18 +114,18 @@ spec:
                 container('kubectl') {
                     script {
                         echo "Deploying manifests to Kubernetes..."
-                        
-                        // Safety wait
-                        sleep 5 
-                        
-                        // Apply manifests
-                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                        
-                        // Force restart to pick up the new image
-                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                        
-                        // Wait up to 5 minutes (300s) for the app to start
-                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
+                        try {
+                            sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                            sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                            
+                            // Wait up to 5 minutes
+                            sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
+                        } catch (Exception e) {
+                            echo "🔴 DEPLOYMENT FAILED - FETCHING CRASH LOGS..."
+                            sh "kubectl get pods -n ${NAMESPACE}"
+                            sh "kubectl logs -l app=carbon-emission-app -n ${NAMESPACE} --tail=200 --all-containers || true"
+                            error("Deployment Failed. Please check the logs above.")
+                        }
                     }
                 }
             }
