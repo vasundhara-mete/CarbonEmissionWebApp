@@ -17,10 +17,13 @@ spec:
     - name: docker-config
       mountPath: /etc/docker/daemon.json
       subPath: daemon.json
+  
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ["cat"]
     tty: true
+    securityContext:
+      runAsUser: 0   # 👈 THIS IS THE MISSING FIX
     env:
     - name: KUBECONFIG
       value: /kube/config
@@ -28,6 +31,7 @@ spec:
     - name: kubeconfig-secret
       mountPath: /kube/config
       subPath: kubeconfig
+      
   volumes:
   - name: docker-config
     configMap:
@@ -54,7 +58,7 @@ spec:
             }
         }
 
-        // --- STAGE 2: SONARQUBE ---
+        // --- STAGE 2: SONARQUBE ANALYSIS ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
@@ -76,7 +80,7 @@ spec:
             }
         }
 
-        // --- STAGE 3: BUILD ---
+        // --- STAGE 3: BUILD DOCKER IMAGE ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -88,7 +92,7 @@ spec:
             }
         }
 
-        // --- STAGE 4: PUSH ---
+        // --- STAGE 4: PUSH TO NEXUS ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
@@ -109,21 +113,22 @@ spec:
             }
         }
 
-        // --- STAGE 5: DEPLOY (With Retry) ---
+        // --- STAGE 5: DEPLOY TO KUBERNETES ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     script {
                         echo "Deploying manifests to Kubernetes..."
-                        retry(3) {
-                            sleep 5 
-                            sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                            sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                            sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
-                        }
+                        
+                        // We can remove the big retry block now that permissions are fixed
+                        sleep 5 
+                        
+                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
                     }
                 }
             }
         }
-    } 
-} 
+    }
+}
