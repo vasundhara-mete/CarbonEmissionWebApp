@@ -111,27 +111,27 @@ spec:
             }
         }
 
-        // --- STAGE 5: DEPLOY TO KUBERNETES ---
+        // --- STAGE 5: KUBERNETES (Deploy) ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     script {
                         echo "Deploying manifests to Kubernetes..."
                         
-                        // Small safety wait
-                        sleep 5 
-                        
-                        // Apply manifests (Fixed syntax here)
-                        sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                        
-                        // Restart deployment to update image
-                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                        
-                        // Wait for success status
-                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
+                        // Retry up to 3 times if the agent disconnects
+                        retry(3) {
+                            sleep 5 // Wait for stability
+                            
+                            // Apply manifests
+                            sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                            
+                            // Restart rollout
+                            sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                            
+                            // Check status
+                            sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
+                        }
                     }
                 }
             }
         }
-    }
-}
