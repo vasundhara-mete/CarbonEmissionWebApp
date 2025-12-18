@@ -23,7 +23,7 @@ spec:
     command: ["cat"]
     tty: true
     securityContext:
-      runAsUser: 0   # 👈 THIS IS THE MISSING FIX
+      runAsUser: 0   # Essential for your environment
     env:
     - name: KUBECONFIG
       value: /kube/config
@@ -120,12 +120,17 @@ spec:
                     script {
                         echo "Deploying manifests to Kubernetes..."
                         
-                        // We can remove the big retry block now that permissions are fixed
+                        // Safety wait
                         sleep 5 
                         
+                        // Apply manifests
                         sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                        
+                        // Force restart to pick up the new image
                         sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
+                        
+                        // Wait up to 5 minutes (300s) for the pod to start
+                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
                     }
                 }
             }
