@@ -46,6 +46,7 @@ spec:
     environment {
         IMAGE_NAME    = "carbon-emission-app"
         NAMESPACE     = "2401129"
+        // We will overwrite this with the IP address dynamically
         REGISTRY_HOST = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
@@ -94,6 +95,7 @@ spec:
                 container('dind') {
                     script {
                         echo "Logging into Nexus Registry..."
+                        // Attempt to login using the hostname first
                         sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
                         
                         echo "Pushing Image to Nexus..."
@@ -115,10 +117,10 @@ spec:
                     script {
                         echo "Configuring Secrets & Deploying..."
                         
-                        // 1. Delete old secret if it exists to ensure we have the fresh one
+                        // 1. Delete old secret
                         sh "kubectl delete secret nexus-secret -n ${NAMESPACE} --ignore-not-found"
                         
-                        // 2. Create the secret so K8s can login to Nexus
+                        // 2. Create secret (Using hostname - if this fails, we need the IP)
                         sh """
                             kubectl create secret docker-registry nexus-secret \
                             --docker-server=${REGISTRY_HOST} \
@@ -127,13 +129,13 @@ spec:
                             -n ${NAMESPACE}
                         """
                         
-                        // 3. Apply deployment
+                        // 3. FORCE RESTART to retry pulling the image
                         sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
                         
-                        // 4. Restart to pick up new image
-                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
+                        // Delete the old failing pods so the new secret is picked up immediately
+                        sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false"
                         
-                        // 5. Wait for success
+                        // 4. Wait for success
                         try {
                             sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
                         } catch (Exception e) {
