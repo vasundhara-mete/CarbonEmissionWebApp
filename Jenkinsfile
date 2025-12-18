@@ -54,19 +54,17 @@ spec:
             }
         }
 
-        // --- STAGE 2: SONARQUBE ANALYSIS ---
+        // --- STAGE 2: SONARQUBE ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
                     script {
-                        // Wait for Docker Daemon to start
                         timeout(time: 1, unit: 'MINUTES') {
                             waitUntil {
                                 try { sh 'docker info >/dev/null 2>&1'; return true } 
                                 catch (Exception e) { sleep 5; return false }
                             }
                         }
-                        // Run Sonar Scanner
                         sh """
                             docker run --rm \
                                 -v "\$PWD/app:/usr/src" \
@@ -78,7 +76,7 @@ spec:
             }
         }
 
-        // --- STAGE 3: BUILD DOCKER IMAGE ---
+        // --- STAGE 3: BUILD ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -90,7 +88,7 @@ spec:
             }
         }
 
-        // --- STAGE 4: PUSH TO NEXUS ---
+        // --- STAGE 4: PUSH ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
@@ -111,27 +109,21 @@ spec:
             }
         }
 
-        // --- STAGE 5: KUBERNETES (Deploy) ---
+        // --- STAGE 5: DEPLOY (With Retry) ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
                     script {
                         echo "Deploying manifests to Kubernetes..."
-                        
-                        // Retry up to 3 times if the agent disconnects
                         retry(3) {
-                            sleep 5 // Wait for stability
-                            
-                            // Apply manifests
+                            sleep 5 
                             sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
-                            
-                            // Restart rollout
                             sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                            
-                            // Check status
                             sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=60s"
                         }
                     }
                 }
             }
         }
+    } 
+} 
