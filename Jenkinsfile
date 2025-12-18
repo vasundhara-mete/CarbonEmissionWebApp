@@ -46,7 +46,7 @@ spec:
         REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
     }
     stages {
-        // 1. JENKINS & GIT (Checking out code)
+        // --- STAGE 1: JENKINS (Checkout) ---
         stage('Checkout Code') {
             steps {
                 deleteDir()
@@ -54,7 +54,7 @@ spec:
             }
         }
 
-        // 2. SONARQUBE (Checking Code Quality)
+        // --- STAGE 2: SONARQUBE (Analysis) ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
@@ -68,7 +68,7 @@ spec:
             }
         }
 
-        // 3. DOCKER (Building the Image)
+        // --- STAGE 3: DOCKER (Build Only) ---
         stage('Build Docker Image') {
             steps {
                 container('dind') {
@@ -79,22 +79,22 @@ spec:
                                 catch (Exception e) { sleep 5; return false }
                             }
                         }
-                        echo "Building Docker Image..."
+                        echo "Building Image with Docker..."
                         sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
                     }
                 }
             }
         }
 
-        // 4. NEXUS (Pushing Image to Registry)
+        // --- STAGE 4: NEXUS (Login & Push Only) ---
         stage('Push to Nexus') {
             steps {
                 container('dind') {
                     script {
-                        echo "Logging into Nexus..."
+                        echo "Logging into Nexus Registry..."
                         sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
                         
-                        echo "Pushing image to Nexus..."
+                        echo "Pushing Image to Nexus..."
                         sh """
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:latest
@@ -107,11 +107,11 @@ spec:
             }
         }
 
-        // 5. KUBERNETES (Deploying the App)
+        // --- STAGE 5: KUBERNETES (Deploy) ---
         stage('Deploy to Kubernetes') {
             steps {
                 container('kubectl') {
-                    echo "Deploying to Kubernetes Cluster..."
+                    echo "Deploying manifests to Kubernetes..."
                     sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
                     sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                 }
