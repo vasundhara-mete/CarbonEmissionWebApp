@@ -46,9 +46,8 @@ spec:
     environment {
         IMAGE_NAME    = "carbon-emission-app"
         NAMESPACE     = "2401129"
-        // We will overwrite this with the IP address dynamically
-        REGISTRY_HOST = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
-        REGISTRY_URL  = "${REGISTRY_HOST}/${NAMESPACE}"
+        // We start with the hostname, but we will overwrite this with the IP later
+        NEXUS_HOSTNAME = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085"
     }
     stages {
         stage('Checkout Code') {
@@ -79,33 +78,41 @@ spec:
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build & Push (IP Fix)') {
             steps {
                 container('dind') {
                     script {
-                        echo "Building Image with Docker..."
-                        sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
-                    }
-                }
-            }
-        }
-
-        stage('Push to Nexus') {
-            steps {
-                container('dind') {
-                    script {
-                        echo "Logging into Nexus Registry..."
-                        // Attempt to login using the hostname first
-                        sh "docker login ${REGISTRY_HOST} -u admin -p Changeme@2025"
+                        echo "🔍 resolving Nexus IP Address..."
+                        // This command finds the IP address of Nexus from inside the pod
+                        def nexus_ip = sh(script: "getent hosts nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local | awk '{ print \$1 }'", returnStdout: true).trim()
                         
-                        echo "Pushing Image to Nexus..."
+                        if (!nexus_ip) {
+                            error("❌ Could not resolve Nexus IP! The DNS is completely broken.")
+                        }
+                        
+                        echo "✅ Resolved Nexus IP: ${nexus_ip}"
+                        
+                        // Set the Registry Host to use the IP instead of the name
+                        env.REGISTRY_HOST = "${nexus_ip}:8085"
+                        env.REGISTRY_URL  = "${env.REGISTRY_HOST}/${NAMESPACE}"
+                        
+                        echo "Building Image using IP: ${env.REGISTRY_HOST}..."
+                        sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
+                        
+                        echo "Logging into Nexus (IP)..."
+                        sh "docker login ${env.REGISTRY_HOST} -u admin -p Changeme@2025"
+                        
+                        echo "Pushing Image to Nexus (IP)..."
                         sh """
-                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
-                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${REGISTRY_URL}/${IMAGE_NAME}:latest
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${env.REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${env.REGISTRY_URL}/${IMAGE_NAME}:latest
                             
-                            docker push ${REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
-                            docker push ${REGISTRY_URL}/${IMAGE_NAME}:latest
+                            docker push ${env.REGISTRY_URL}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker push ${env.REGISTRY_URL}/${IMAGE_NAME}:latest
                         """
+                        
+                        // Store the IP for the next stage
+                        writeFile file: 'nexus_ip.txt', text: nexus_ip
                     }
                 }
             }
@@ -115,27 +122,36 @@ spec:
             steps {
                 container('kubectl') {
                     script {
-                        echo "Configuring Secrets & Deploying..."
+                        // Read the IP we found in the previous stage
+                        def nexus_ip = readFile('nexus_ip.txt').trim()
+                        def registry_host_ip = "${nexus_ip}:8085"
                         
-                        // 1. Delete old secret
+                        echo "🛠️ Patching Deployment file to use IP: ${nexus_ip}..."
+                        
+                        // Use SED to replace the hostname with the IP in the deployment.yaml file
+                        sh "sed -i 's|nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085|${registry_host_ip}|g' k8s/deployment.yaml"
+                        
+                        // Print to verify change
+                        sh "cat k8s/deployment.yaml | grep image:"
+
+                        echo "Configuring Secrets & Deploying..."
                         sh "kubectl delete secret nexus-secret -n ${NAMESPACE} --ignore-not-found"
                         
-                        // 2. Create secret (Using hostname - if this fails, we need the IP)
+                        // Create secret using the IP address
                         sh """
                             kubectl create secret docker-registry nexus-secret \
-                            --docker-server=${REGISTRY_HOST} \
+                            --docker-server=${registry_host_ip} \
                             --docker-username=admin \
                             --docker-password=Changeme@2025 \
                             -n ${NAMESPACE}
                         """
                         
-                        // 3. FORCE RESTART to retry pulling the image
                         sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
+                        sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                         
-                        // Delete the old failing pods so the new secret is picked up immediately
-                        sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false"
+                        // Force delete bad pods to trigger immediate restart with new config
+                        sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false || true"
                         
-                        // 4. Wait for success
                         try {
                             sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
                         } catch (Exception e) {
