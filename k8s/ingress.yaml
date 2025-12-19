@@ -3,8 +3,7 @@ kind: Ingress
 metadata:
   name: carbon-app-ingress
   namespace: "2401129"
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+ 
 spec:
   ingressClassName: nginx
   rules:
