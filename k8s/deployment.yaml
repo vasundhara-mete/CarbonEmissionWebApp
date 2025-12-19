@@ -17,14 +17,14 @@ spec:
         - name: nexus-secret 
       containers:
         - name: carbon-app-container
-          # 👇 Must be the Hostname (Jenkins will swap this for the IP)
+          # 👇 Use the HOSTNAME here. Jenkins will auto-replace it with the IP during deploy.
           image: nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local:8085/2401129/carbon-emission-app:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
           env:
             - name: DB_URL
-              # 👇 YOUR LAPTOP IP
+              # 👇 Your Laptop IP
               value: "jdbc:mysql://192.168.23.88:3306/projectcrud?useSSL=false&allowPublicKeyRetrieval=true"
             - name: DB_USER
               value: "root"

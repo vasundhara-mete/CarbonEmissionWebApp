@@ -44,7 +44,7 @@ spec:
     environment {
         IMAGE_NAME     = "carbon-emission-app"
         NAMESPACE      = "2401129"
-        // Separate Hostname and Port to prevent DNS errors
+        // 1. We keep Hostname and Port separate to avoid script errors
         NEXUS_DOMAIN   = "nexus-service-for-docker-hosted-registry.nexus.svc.cluster.local"
         NEXUS_PORT     = "8085"
     }
@@ -91,63 +91,56 @@ spec:
             }
         }
 
-        // --- STAGE 4: NEXUS ---
+        // --- STAGE 4: NEXUS (Push with Hostname) ---
         stage('Nexus Push') {
             steps {
                 container('dind') {
                     script {
-                        echo "Resolving Nexus IP..."
-                        // 👇 FIX: resolve ONLY the domain, not the port
-                        def nexus_ip = sh(script: "getent hosts ${NEXUS_DOMAIN} | awk '{ print \$1 }'", returnStdout: true).trim()
+                        // We use the HOSTNAME here because Docker allows it (configured in daemon.json)
+                        def full_nexus_host = "${NEXUS_DOMAIN}:${NEXUS_PORT}"
+                        def registry_url    = "${full_nexus_host}/${NAMESPACE}"
                         
-                        if (!nexus_ip) { 
-                            error("❌ DNS Error: Could not resolve Nexus IP for ${NEXUS_DOMAIN}") 
-                        }
-                        
-                        echo "✅ Nexus IP Resolved: ${nexus_ip}"
-                        
-                        // Save IP for the deployment stage
-                        writeFile file: 'nexus_ip.txt', text: nexus_ip
-                        
-                        // Construct the full URL using the IP
-                        def registry_ip_url = "${nexus_ip}:${NEXUS_PORT}/${NAMESPACE}"
-                        
-                        echo "Logging into Nexus (${nexus_ip})..."
-                        sh "docker login ${nexus_ip}:${NEXUS_PORT} -u admin -p Changeme@2025"
+                        echo "Logging into Nexus (Hostname)..."
+                        sh "docker login ${full_nexus_host} -u admin -p Changeme@2025"
                         
                         echo "Pushing Image..."
                         sh """
-                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_ip_url}/${IMAGE_NAME}:${BUILD_NUMBER}
-                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_ip_url}/${IMAGE_NAME}:latest
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_url}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_url}/${IMAGE_NAME}:latest
                             
-                            docker push ${registry_ip_url}/${IMAGE_NAME}:${BUILD_NUMBER}
-                            docker push ${registry_ip_url}/${IMAGE_NAME}:latest
+                            docker push ${registry_url}/${IMAGE_NAME}:${BUILD_NUMBER}
+                            docker push ${registry_url}/${IMAGE_NAME}:latest
                         """
                     }
                 }
             }
         }
 
-        // --- STAGE 5: KUBERNETES ---
+        // --- STAGE 5: KUBERNETES (Deploy with IP) ---
         stage('Kubernetes Deploy') {
             steps {
                 container('kubectl') {
                     script {
-                        echo "Deploying to Kubernetes..."
+                        echo "Resolving Nexus IP for Kubernetes..."
                         
-                        // 1. Get the IP detected in the previous stage
-                        def nexus_ip = readFile('nexus_ip.txt').trim()
-                        def full_nexus_host = "${NEXUS_DOMAIN}:${NEXUS_PORT}"
-                        def full_nexus_ip   = "${nexus_ip}:${NEXUS_PORT}"
+                        // 1. Get the IP Address (Fixes 'server misbehaving' error on Nodes)
+                        def nexus_ip = sh(script: "getent hosts ${NEXUS_DOMAIN} | awk '{ print \$1 }'", returnStdout: true).trim()
+                        if (!nexus_ip) { error("❌ DNS Error: Could not resolve Nexus IP.") }
                         
-                        // 2. Patch deployment.yaml to use IP (Avoids Node DNS failure)
-                        sh "sed -i 's|${full_nexus_host}|${full_nexus_ip}|g' k8s/deployment.yaml"
+                        echo "✅ Nexus IP: ${nexus_ip}. Swapping Hostname -> IP for deployment."
                         
-                        // 3. Create Secret with IP
+                        // Define strings for replacement
+                        def hostname_str = "${NEXUS_DOMAIN}:${NEXUS_PORT}"
+                        def ip_str       = "${nexus_ip}:${NEXUS_PORT}"
+                        
+                        // 2. Patch deployment.yaml: Replace Hostname with IP
+                        sh "sed -i 's|${hostname_str}|${ip_str}|g' k8s/deployment.yaml"
+                        
+                        // 3. Create Secret using the IP
                         sh "kubectl delete secret nexus-secret -n ${NAMESPACE} --ignore-not-found"
                         sh """
                             kubectl create secret docker-registry nexus-secret \
-                            --docker-server=${full_nexus_ip} \
+                            --docker-server=${ip_str} \
                             --docker-username=admin \
                             --docker-password=Changeme@2025 \
                             -n ${NAMESPACE}
@@ -157,10 +150,10 @@ spec:
                         sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
                         sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                         
-                        // 5. Delete old pods to force immediate pull
+                        // 5. Delete old pods to force immediate restart
                         sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false || true"
                         
-                        // 6. Wait for Green Status
+                        // 6. Wait for Success
                         sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=300s"
                     }
                 }
