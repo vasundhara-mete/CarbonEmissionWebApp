@@ -103,7 +103,7 @@ spec:
                         def registry_url    = "${full_nexus_host}/${NAMESPACE}"
                         
                         echo "Logging into Nexus..."
-                        // This was the line that failed before. It is fixed now.
+                        // This uses the hostname (Required by Docker)
                         sh "docker login ${full_nexus_host} -u admin -p Changeme@2025"
                         
                         echo "Pushing Image..."
@@ -146,8 +146,6 @@ spec:
                         // Apply & Restart
                         sh "kubectl apply -f k8s/ -n ${NAMESPACE}"
                         sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
-                        
-                        // Delete old pods to force restart
                         sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false || true"
                         
                         // Wait for Status (Pass even if timeout to keep GREEN)
