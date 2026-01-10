@@ -48,15 +48,12 @@ spec:
         NEXUS_PORT     = "8085"
     }
     stages {
-        // --- STAGE 1 ---
         stage('Checkout') {
             steps {
                 deleteDir()
-                sh "git clone https://github.com/vasundhara-mete/CarbonEmissionWebApp.git ." 
+                sh "git clone https://github.com/vasundhara-mete/CarbonEmissionWebApp.git ."
             }
         }
-
-        // --- STAGE 2 ---
         stage('SonarQube Analysis') {
             steps {
                 container('dind') {
@@ -77,8 +74,6 @@ spec:
                 }
             }
         }
-
-        // --- STAGE 3 ---
         stage('Docker Build') {
             steps {
                 container('dind') {
@@ -89,8 +84,6 @@ spec:
                 }
             }
         }
-
-        // --- STAGE 4 ---
         stage('Nexus Push') {
             steps {
                 container('dind') {
@@ -103,14 +96,12 @@ spec:
                         def registry_url    = "${full_nexus_host}/${NAMESPACE}"
                         
                         echo "Logging into Nexus..."
-                        // This uses the hostname (Required by Docker)
                         sh "docker login ${full_nexus_host} -u admin -p Changeme@2025"
                         
                         echo "Pushing Image..."
                         sh """
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_url}/${IMAGE_NAME}:${BUILD_NUMBER}
                             docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${registry_url}/${IMAGE_NAME}:latest
-                            
                             docker push ${registry_url}/${IMAGE_NAME}:${BUILD_NUMBER}
                             docker push ${registry_url}/${IMAGE_NAME}:latest
                         """
@@ -118,8 +109,6 @@ spec:
                 }
             }
         }
-
-        // --- STAGE 5 ---
         stage('Kubernetes Deploy') {
             steps {
                 container('kubectl') {
@@ -130,7 +119,7 @@ spec:
                         def hostname_str = "${NEXUS_DOMAIN}:${NEXUS_PORT}"
                         def ip_str       = "${nexus_ip}:${NEXUS_PORT}"
                         
-                        // Patch deployment to use IP (Fixes ImagePullBackOff)
+                        // Patch deployment to use IP
                         sh "sed -i 's|${hostname_str}|${ip_str}|g' k8s/deployment.yaml"
                         
                         // Create Secret with IP
@@ -148,12 +137,8 @@ spec:
                         sh "kubectl rollout restart deployment/carbon-app-deployment -n ${NAMESPACE}"
                         sh "kubectl delete pods -l app=carbon-emission-app -n ${NAMESPACE} --wait=false || true"
                         
-                        // Wait for Status (Pass even if timeout to keep GREEN)
-                        try {
-                            sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=120s"
-                        } catch (Exception e) {
-                            echo "⚠️ Deployment timing out, but keeping pipeline GREEN."
-                        }
+                        // Wait for Status (NO TRY CATCH - Will FAIL if app is broken)
+                        sh "kubectl rollout status deployment/carbon-app-deployment -n ${NAMESPACE} --timeout=120s"
                     }
                 }
             }
